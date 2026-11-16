@@ -70,6 +70,7 @@ async function ghPut(path, token, posts, sha, message) {
     },
     body: JSON.stringify(body),
   });
+  if (res.status === 409) throw new Error("GitHub was still catching up, try again in a few seconds");
   if (!res.ok) throw new Error(`GitHub said ${res.status}`);
 }
 
@@ -94,6 +95,9 @@ async function decryptToken(password) {
 }
 
 // ---------- rendering ----------
+// Set when this browser is unlocked: { token, path, page }. null for visitors.
+let dev = null;
+
 function stampNow() {
   return new Date().toLocaleString("en-US", {
     weekday: "long",
@@ -115,21 +119,111 @@ function render(posts) {
   posts
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date)) // newest first
-    .forEach((p) => {
-      const article = document.createElement("article");
-      const time = document.createElement("time");
-      time.dateTime = p.date;
-      time.textContent = p.stamp;
-      const text = document.createElement("div");
-      text.className = "text";
-      text.textContent = p.text;
-      article.append(time, text);
-      el.append(article);
-    });
+    .forEach((p) => el.append(postElement(p)));
 }
 
-// ---------- dev mode: compose box at the top of the page ----------
-function setUpCompose(page, token, path) {
+function postElement(p) {
+  const article = document.createElement("article");
+  const time = document.createElement("time");
+  time.dateTime = p.date;
+  time.textContent = p.stamp;
+  const text = document.createElement("div");
+  text.className = "text";
+  text.textContent = p.text;
+  article.append(time, text);
+  if (dev) article.append(postActions(p, text));
+  return article;
+}
+
+// ---------- dev mode ----------
+// Re-read the latest file from GitHub, apply a change, write it back, re-render.
+async function savePosts(change, message) {
+  const { posts, sha } = await ghGet(dev.path, dev.token);
+  const updated = change(posts);
+  await ghPut(dev.path, dev.token, updated, sha, message);
+  render(updated);
+}
+
+function postActions(p, text) {
+  const row = document.createElement("div");
+  row.className = "row actions";
+  row.innerHTML = `
+    <button type="button">edit</button>
+    <button type="button">delete</button>
+    <span class="status muted"></span>`;
+  const [editButton, deleteButton] = row.querySelectorAll("button");
+  const status = row.querySelector(".status");
+
+  editButton.onclick = () => {
+    const form = document.createElement("form");
+    form.className = "edit";
+    form.innerHTML = `
+      <textarea aria-label="edit post"></textarea>
+      <div class="row">
+        <button type="submit">save</button>
+        <button type="button" class="cancel">cancel</button>
+        <span class="status muted"></span>
+      </div>`;
+    const textarea = form.querySelector("textarea");
+    const formStatus = form.querySelector(".status");
+    const buttons = form.querySelectorAll("button");
+    textarea.value = p.text;
+
+    text.replaceWith(form);
+    row.hidden = true;
+    textarea.focus();
+
+    form.querySelector(".cancel").onclick = () => {
+      form.replaceWith(text);
+      row.hidden = false;
+    };
+    textarea.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) form.requestSubmit();
+    });
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const newText = textarea.value.trim();
+      if (!newText) {
+        formStatus.textContent = "that's empty. use delete instead.";
+        return;
+      }
+      buttons.forEach((b) => (b.disabled = true));
+      formStatus.textContent = "saving…";
+      try {
+        await savePosts((posts) => {
+          const i = posts.findIndex((x) => x.date === p.date);
+          if (i === -1) throw new Error("that post isn't there anymore");
+          posts[i] = { ...posts[i], text: newText };
+          return posts;
+        }, `edit post on ${dev.page}`);
+      } catch (err) {
+        formStatus.textContent = `didn't save: ${err.message}.`;
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    };
+  };
+
+  deleteButton.onclick = async () => {
+    if (!confirm("delete this post?")) return;
+    editButton.disabled = deleteButton.disabled = true;
+    status.textContent = "deleting…";
+    try {
+      await savePosts(
+        (posts) => posts.filter((x) => x.date !== p.date),
+        `delete post on ${dev.page}`
+      );
+    } catch (err) {
+      status.textContent = `didn't delete: ${err.message}.`;
+      editButton.disabled = deleteButton.disabled = false;
+    }
+  };
+
+  return row;
+}
+
+// Compose box at the top of the page.
+function setUpCompose() {
   const form = document.createElement("form");
   form.id = "compose";
   form.innerHTML = `
@@ -163,13 +257,9 @@ function setUpCompose(page, token, path) {
     button.disabled = true;
     status.textContent = "posting…";
     try {
-      // re-read the latest file right before writing, so nothing gets overwritten
-      const { posts, sha } = await ghGet(path, token);
       const post = { date: new Date().toISOString(), stamp: stampNow(), text };
-      posts.push(post);
-      await ghPut(path, token, posts, sha, `post to ${page}`);
+      await savePosts((posts) => [...posts, post], `post to ${dev.page}`);
       textarea.value = "";
-      render(posts);
       status.textContent = "posted. the public page updates in a minute or two.";
     } catch (err) {
       status.textContent = `didn't post: ${err.message}. your text is still here.`;
@@ -199,7 +289,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     if (token) {
       // dev mode: read straight from GitHub so you see your newest posts immediately
-      setUpCompose(page, token, path);
+      dev = { token, path, page };
+      setUpCompose();
       render((await ghGet(path, token)).posts);
     } else {
       const res = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
