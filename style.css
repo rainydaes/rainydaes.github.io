@@ -3,6 +3,7 @@
   --fg: #111111;
   --muted: #888888;
   --line: #e2e2e2;
+  --accent: #c0caf0;
   color-scheme: light;
 }
 
@@ -48,6 +49,7 @@ nav {
 }
 
 nav a { text-decoration: none; }
+nav a:first-child { color: var(--accent); } /* the "rainydaes" link */
 nav a:hover, nav a[aria-current="page"] { text-decoration: underline; }
 
 nav button, form button {
@@ -70,7 +72,7 @@ article {
 
 article time {
   display: block;
-  color: var(--muted);
+  color: var(--accent);
   font-size: 14px;
   margin-bottom: 8px;
 }
