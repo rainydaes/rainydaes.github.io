@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>dev</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js"></script>
+</head>
+<body data-page="dev">
+  <nav>
+    <a href="./">rainydaes</a>
+    <a href="twelvelines.html">twelvelines</a>
+    <a href="everythingelse.html">everythingelse</a>
+    <button id="theme" type="button" aria-label="switch light/dark">◐</button>
+  </nav>
+  <main>
+    <form id="unlock">
+      <input type="password" placeholder="password" aria-label="password" autocomplete="current-password">
+      <div class="row">
+        <button type="submit">unlock</button>
+        <span class="status muted"></span>
+      </div>
+    </form>
+  </main>
+  <script>
+    const form = document.getElementById("unlock");
+    const input = form.querySelector("input");
+    const status = form.querySelector(".status");
+
+    if (load(TOKEN_KEY)) status.textContent = "already unlocked on this browser.";
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const token = input.value.trim();
+      if (!token) return;
+      status.textContent = "checking…";
+      try {
+        await ghGet("posts/twelvelines.json", token);
+        store(TOKEN_KEY, token);
+        location.href = "twelvelines.html";
+      } catch (err) {
+        status.textContent = "wrong password.";
+      }
+    };
+  </script>
+</body>
+</html>
