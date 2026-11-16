@@ -33,15 +33,26 @@
 
     form.onsubmit = async (e) => {
       e.preventDefault();
-      const token = input.value.trim();
-      if (!token) return;
+      const password = input.value;
+      if (!password) return;
       status.textContent = "checking…";
+
+      let token;
+      try {
+        token = await decryptToken(password);
+      } catch (err) {
+        status.textContent = err.message === "no-secret"
+          ? "secret.json isn't on the site yet. run encrypt-token.js and push."
+          : "wrong password.";
+        return;
+      }
+
       try {
         await ghGet("posts/twelvelines.json", token);
         store(TOKEN_KEY, token);
         location.href = "twelvelines.html";
       } catch (err) {
-        status.textContent = "wrong password.";
+        status.textContent = "password worked, but GitHub rejected the token. it may have expired.";
       }
     };
   </script>

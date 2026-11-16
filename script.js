@@ -73,6 +73,26 @@ async function ghPut(path, token, posts, sha, message) {
   if (!res.ok) throw new Error(`GitHub said ${res.status}`);
 }
 
+// ---------- password -> token (made by encrypt-token.js) ----------
+async function decryptToken(password) {
+  const res = await fetch(`secret.json?t=${Date.now()}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("no-secret");
+  const s = await res.json();
+  const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const base = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]
+  );
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: bytes(s.salt), iterations: s.iterations, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(s.iv) }, key, bytes(s.data));
+  return new TextDecoder().decode(plain);
+}
+
 // ---------- rendering ----------
 function stampNow() {
   return new Date().toLocaleString("en-US", {
